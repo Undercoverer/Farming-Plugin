@@ -1,0 +1,12 @@
+name: Farming
+version: '${project.version}'
+main: com.undercover.farming.Farming
+api-version: 1.18
+authors: [ Undercover#9773 ]
+description: Adds a command to help u farm
+commands:
+  plant:
+    permission: farming.plant
+    description: Plants whatever item you are holding in your hand in a floodfill pattern starting where you are looking
+    usage: "Usage: /plant"
+
