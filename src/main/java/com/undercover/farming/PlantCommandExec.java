@@ -1,6 +1,6 @@
 package com.undercover.farming;
 
-import org.bukkit.GameMode;
+import org.bukkit.Bukkit;
 import org.bukkit.Material;
 import org.bukkit.Sound;
 import org.bukkit.block.Block;
@@ -9,11 +9,9 @@ import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.plugin.Plugin;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 import static org.bukkit.GameMode.CREATIVE;
 import static org.bukkit.Material.*;
@@ -53,6 +51,21 @@ public class PlantCommandExec implements CommandExecutor {
 
     }
 
+    Plugin plugin = Bukkit.getPluginManager().getPlugin("Farming");
+
+    public static boolean isPlantBlock(Block b) {
+        return PlantCommandExec.ITEM_BLOCK_PLANT_MAP.containsValue(b.getType());
+    }
+
+    public static ArrayList<Block> getNeighbors(Block clickedBlock) {
+        ArrayList<Block> blocks = new ArrayList<>(4);
+        blocks.add(clickedBlock.getRelative(0, 0, 1));
+        blocks.add(clickedBlock.getRelative(0, 0, -1));
+        blocks.add(clickedBlock.getRelative(1, 0, 0));
+        blocks.add(clickedBlock.getRelative(-1, 0, 0));
+        return blocks;
+    }
+
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         if (sender instanceof Player player) {
@@ -63,10 +76,18 @@ public class PlantCommandExec implements CommandExecutor {
                 Block targetBlock = player.getTargetBlockExact(8);
 
                 if (targetBlock != null && plantableOn(ITEM_BLOCK_PLANT_MAP.get(plant_item), targetBlock)) {
-                    plantStart(player, plant_item, targetBlock);
+                    int speed = 10;
+                    if (args.length == 1) {
+                        try {
+                            speed = Math.min(Integer.parseInt(args[0]), 32);
+                        } catch (NumberFormatException e) {
+                            sender.sendMessage("Argument must be a non negative integer");
+                        }
+                    }
+                    plantStart(player, plant_item, targetBlock, speed);
 
                 } else {
-                    sender.sendMessage("Must be looking at a block which %s can be planted on".formatted(plant_item.toString()));
+                    sender.sendMessage("Must be looking at a block which %s can be planted on".formatted(plant_item.toString().toLowerCase().replaceAll("_", " ")));
                 }
             }
         } else {
@@ -75,27 +96,27 @@ public class PlantCommandExec implements CommandExecutor {
         return true;
     }
 
-    private void plantStart(Player player, Material plant_item, Block targetBlock) {
-        int totalItemCount = 0;
-        ItemStack[] contents = player.getInventory().getContents();
-        for (ItemStack content : contents) {
 
-            if (content != null && content.getType() == plant_item) {
-                totalItemCount += content.getAmount();
-            }
+    private void plantStart(Player player, Material plant_item, Block targetBlock, int speed) {
+        ItemStack[] contents = player.getInventory().getContents();
+        int sum = Arrays.stream(contents).filter(Objects::nonNull).filter(e -> e.getType() == plant_item).mapToInt(ItemStack::getAmount).sum();
+        ArrayList<Block> plantingSurfaces = new ArrayList<>();
+        int count = Math.min(sum, blocksToPlant(targetBlock, ITEM_BLOCK_PLANT_MAP.get(plant_item), new HashSet<>(128), plantingSurfaces));
+        plantingSurfaces.sort(Comparator.comparingDouble(o -> o.getLocation().distanceSquared(targetBlock.getLocation())));
+        for (int i = 0; i < (player.getGameMode().equals(CREATIVE) ? plantingSurfaces.size() : count); i++) {
+            int finalI = i;
+            Bukkit.getScheduler().runTaskLater(plugin, () -> process(plantingSurfaces.get(finalI), ITEM_BLOCK_PLANT_MAP.get(plant_item)), (long) (speed * Math.sqrt(i / (2 * Math.PI))));
         }
-        int amountPlaced = plantFromBlock(targetBlock, ITEM_BLOCK_PLANT_MAP.get(plant_item), 0, player.getGameMode().equals(CREATIVE) ? Integer.MAX_VALUE : totalItemCount, new ArrayList<>());
-        player.sendMessage("%d crop%s planted".formatted(amountPlaced, amountPlaced == 1 ? " was" : "s were"));
         if (player.getGameMode() != CREATIVE) {
-            for (ItemStack content : contents) {
+            for (int i = contents.length - 1; i >= 0; i--) {
+                ItemStack content = contents[i];
                 if (content != null && content.getType() == plant_item) {
-                    int amount = content.getAmount();
-                    amountPlaced -= amount;
-                    if (amountPlaced < 0) {
-                        content.setAmount(-amountPlaced);
-                        break;
-                    } else {
+                    count -= content.getAmount();
+                    if (count >= 0) {
                         content.setAmount(0);
+                    } else {
+                        content.setAmount(-count);
+                        break;
                     }
                 }
             }
@@ -103,39 +124,31 @@ public class PlantCommandExec implements CommandExecutor {
         player.playSound(player, Sound.BLOCK_NOTE_BLOCK_COW_BELL, 1f, 1f);
     }
 
-    private int plantFromBlock(Block targetBlock, Material plant_block, int totalPlaced, int totalItemCount, List<Block> placed) {
-        if (totalPlaced == totalItemCount)
-            return totalPlaced;
-        if (plantableOn(plant_block, targetBlock)) {
-            targetBlock.getRelative(0, 1, 0).setType(plant_block);
-            totalPlaced++;
-            placed.add(targetBlock);
-
-            for (Block i : getNeighbors(targetBlock)) {
-                if (!placed.contains(i))
-                    totalPlaced = plantFromBlock(i, plant_block, totalPlaced, totalItemCount, placed);
-            }
-        }
-        return totalPlaced;
+    private void process(Block block, Material toPlant) {
+        block.getRelative(0, 1, 0).setType(toPlant);
     }
 
+    private int blocksToPlant(Block start, Material plantBlock, HashSet<Block> visited, List<Block> blocksToPlaceOn) {
+        int i = 0;
+        Queue<Block> enqueued = new LinkedList<>();
+        enqueued.add(start);
+        while (!enqueued.isEmpty()) {
+            Block b = enqueued.poll();
+            if (plantableOn(plantBlock, b) && !visited.contains(b)) {
+                blocksToPlaceOn.add(b);
+                if (visited.add(b)) {
+                    enqueued.addAll(getNeighbors(b));
+                }
+                i++;
+            }
+        }
+        return i;
+    }
 
     private boolean plantableOn(Material plant_block, Block block) {
         if (PLANTABLE_SURFACES.get(plant_block).contains(block.getType())) {
             return block.getLocation().add(0, 1, 0).getBlock().isEmpty();
         }
         return false;
-    }
-
-    public static boolean isPlantBlock(Block b) {
-        return PlantCommandExec.ITEM_BLOCK_PLANT_MAP.containsValue(b.getType());
-    }
-    public static Block[] getNeighbors(Block clickedBlock) {
-        Block[] blocks = new Block[4];
-        blocks[0] = clickedBlock.getRelative(0,0,1);
-        blocks[1] = clickedBlock.getRelative(0,0,-1);
-        blocks[2] = clickedBlock.getRelative(1,0,0);
-        blocks[3] = clickedBlock.getRelative(-1,0,0);
-        return blocks;
     }
 }

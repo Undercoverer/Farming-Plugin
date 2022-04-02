@@ -7,6 +7,6 @@ description: Adds a command to help u farm
 commands:
   plant:
     permission: farming.plant
-    description: Plants whatever item you are holding in your hand in a floodfill pattern starting where you are looking
-    usage: "Usage: /plant"
+    description: Plants whatever item you are holding in your hand in an expanding circle starting where you are looking at an optional given speed (0 is instant, and 32 is slowest)
+    usage: "Usage: /plant [0-32]"
 
