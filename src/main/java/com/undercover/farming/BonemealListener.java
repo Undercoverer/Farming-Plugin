@@ -77,7 +77,7 @@ public class BonemealListener implements Listener {
 
     private void process(Block targetBlock) {
         Ageable blockData = (Ageable) targetBlock.getBlockData();
-        blockData.setAge(Math.min(blockData.getAge() + 2, 7));
+        blockData.setAge(Math.min(blockData.getAge() + 2, blockData.getMaximumAge()));
         targetBlock.setBlockData(blockData);
         targetBlock.getWorld().spawnParticle(Particle.VILLAGER_HAPPY, targetBlock.getLocation().add(0.5, 0.5, 0.5), 3);
         targetBlock.getWorld().playSound(targetBlock.getLocation().add(0.5, 0.5, 0.5), Sound.ITEM_BONE_MEAL_USE, 1, 1);
